@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
 
 namespace RasterAlgorithms;
 
@@ -145,4 +146,80 @@ public static class Task2
 
     private static bool Inside(Bitmap image, int x, int y) =>
         x >= 0 && y >= 0 && x < image.Width && y < image.Height;
+}
+
+public sealed partial class MainForm
+{
+    private bool segmentAnchored;
+    private bool segmentDragging;
+    private Point segmentStart;
+    private Point segmentEnd;
+
+    private LineAlgorithm SegmentAlgorithm => CurrentMode == Mode.SegmentWu
+        ? LineAlgorithm.Wu : LineAlgorithm.Bresenham;
+
+    private void HandleTask2MouseDown(Point point)
+    {
+        if (!segmentAnchored)
+        {
+            segmentStart = point;
+            segmentEnd = point;
+            segmentAnchored = true;
+            segmentDragging = false;
+            status.Text = $"Начало отрезка: ({point.X}; {point.Y}). " +
+                          "Щёлкните конец или протяните мышью.";
+        }
+        else
+        {
+            segmentEnd = point;
+            CommitSegment();
+        }
+        canvas.Invalidate();
+    }
+
+    private void HandleTask2MouseMove(MouseEventArgs e)
+    {
+        if (!segmentAnchored) return;
+        segmentEnd = new Point(Math.Clamp(e.X, 0, image.Width - 1),
+                               Math.Clamp(e.Y, 0, image.Height - 1));
+        if (e.Button == MouseButtons.Left && segmentEnd != segmentStart)
+            segmentDragging = true;
+        status.Text = $"Отрезок ({segmentStart.X}; {segmentStart.Y}) — " +
+                      $"({segmentEnd.X}; {segmentEnd.Y}).";
+        canvas.Invalidate();
+    }
+
+    private void HandleTask2MouseUp(MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left || !segmentAnchored || !segmentDragging) return;
+        segmentEnd = new Point(Math.Clamp(e.X, 0, image.Width - 1),
+                               Math.Clamp(e.Y, 0, image.Height - 1));
+        CommitSegment();
+    }
+
+    private void CommitSegment()
+    {
+        LineAlgorithm algorithm = SegmentAlgorithm;
+        int drawn = Task2.DrawLine(image, segmentStart, segmentEnd, boundaryColor, algorithm);
+        string name = algorithm == LineAlgorithm.Wu ? "Ву" : "Брезенхема";
+        status.Text = $"Алгоритм {name}: ({segmentStart.X}; {segmentStart.Y}) — " +
+                      $"({segmentEnd.X}; {segmentEnd.Y}); закрашено {drawn} пикселов.";
+        ClearTask2Preview();
+        canvas.Invalidate();
+    }
+
+    private void ClearTask2Preview()
+    {
+        segmentAnchored = false;
+        segmentDragging = false;
+    }
+
+    private void PaintTask2Overlay(Graphics graphics)
+    {
+        if (!segmentAnchored) return;
+        using Pen preview = new(Color.Gray, 1) { DashStyle = DashStyle.Dot };
+        graphics.DrawLine(preview, segmentStart, segmentEnd);
+        using Brush start = new SolidBrush(Color.Orange);
+        graphics.FillEllipse(start, segmentStart.X - 3, segmentStart.Y - 3, 7, 7);
+    }
 }
