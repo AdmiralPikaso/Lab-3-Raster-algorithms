@@ -1,10 +1,11 @@
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
 namespace RasterAlgorithms;
 
 public sealed class MainForm : Form
 {
-    private enum Mode { Draw, FillColor, FillPattern, Trace }
+    private enum Mode { Draw, FillColor, FillPattern, Trace, SegmentBresenham, SegmentWu }
 
     private readonly PictureBox canvas = new();
     private readonly ComboBox modeSelect = new();
@@ -20,6 +21,9 @@ public sealed class MainForm : Form
     private List<Point> contour = [];
     private bool drawing;
     private Point previous;
+    private bool segmentAnchored;
+    private Point segmentStart;
+    private Point segmentEnd;
 
     public MainForm()
     {
@@ -46,12 +50,14 @@ public sealed class MainForm : Form
         modeSelect.DropDownStyle = ComboBoxStyle.DropDownList;
         modeSelect.Width = 190;
         modeSelect.Items.AddRange([
-            "Рисовать границу", "Заливка цветом", "Заливка рисунком", "Обход границы"
+            "Рисовать границу", "Заливка цветом", "Заливка рисунком", "Обход границы",
+            "Отрезок Брезенхемом", "Отрезок Ву"
         ]);
         modeSelect.SelectedIndex = 0;
         modeSelect.SelectedIndexChanged += (_, _) =>
         {
             contour.Clear();
+            segmentAnchored = false;
             canvas.Invalidate();
             UpdateHint();
         };
@@ -119,7 +125,7 @@ public sealed class MainForm : Form
         canvas.Cursor = Cursors.Cross;
         canvas.MouseDown += CanvasMouseDown;
         canvas.MouseMove += CanvasMouseMove;
-        canvas.MouseUp += (_, _) => drawing = false;
+        canvas.MouseUp += CanvasMouseUp;
         canvas.Paint += CanvasPaint;
         scroll.Controls.Add(canvas);
         UpdateHint();
@@ -161,6 +167,24 @@ public sealed class MainForm : Form
         }
 
         drawing = false;
+        if (SegmentMode is LineAlgorithm algorithm)
+        {
+            // Отрезок задаётся двумя нажатиями, поэтому предпросмотр идёт по
+            // событию Paint и не смешивается с уже нарисованными пикселями.
+            segmentAnchored = !segmentAnchored;
+            if (segmentAnchored) segmentStart = e.Location;
+            else
+            {
+                segmentEnd = e.Location;
+                CommitSegment(algorithm);
+            }
+            if (segmentAnchored)
+                status.Text = $"Начало отрезка: ({segmentStart.X}; {segmentStart.Y}). " +
+                              "Протяните до конца или щёлкните второй раз.";
+            canvas.Invalidate();
+            return;
+        }
+
         if (CurrentMode == Mode.Trace)
         {
             contour = RasterOperations.TraceBoundary(image, e.Location);
@@ -194,11 +218,58 @@ public sealed class MainForm : Form
 
     private void CanvasMouseMove(object? sender, MouseEventArgs e)
     {
+        if (SegmentMode is not null)
+        {
+            if (!segmentAnchored || e.Button != MouseButtons.Left) return;
+            segmentEnd = new Point(Math.Clamp(e.X, 0, image.Width - 1),
+                                   Math.Clamp(e.Y, 0, image.Height - 1));
+            status.Text = $"Отрезок ({segmentStart.X}; {segmentStart.Y}) — " +
+                          $"({segmentEnd.X}; {segmentEnd.Y}), длина {SegmentLength()} пикселей.";
+            canvas.Invalidate();
+            return;
+        }
+
         if (!drawing || CurrentMode != Mode.Draw || e.Button != MouseButtons.Left) return;
         Point current = new(Math.Clamp(e.X, 0, image.Width - 1),
                             Math.Clamp(e.Y, 0, image.Height - 1));
         DrawSegment(previous, current);
         previous = current;
+    }
+
+    // Отрезок можно задать двумя щелчками либо протяжкой: в обоих случаях
+    // алгоритм выполняется ровно один раз.
+    private void CanvasMouseUp(object? sender, MouseEventArgs e)
+    {
+        drawing = false;
+        if (e.Button != MouseButtons.Left || SegmentMode is not LineAlgorithm algorithm
+            || !segmentAnchored) return;
+        segmentEnd = new Point(Math.Clamp(e.X, 0, image.Width - 1),
+                               Math.Clamp(e.Y, 0, image.Height - 1));
+        segmentAnchored = false;
+        CommitSegment(algorithm);
+    }
+
+    private LineAlgorithm? SegmentMode => CurrentMode switch
+    {
+        Mode.SegmentBresenham => LineAlgorithm.Bresenham,
+        Mode.SegmentWu => LineAlgorithm.Wu,
+        _ => null
+    };
+
+    private int SegmentLength() => Math.Max(Math.Abs(segmentEnd.X - segmentStart.X),
+                                           Math.Abs(segmentEnd.Y - segmentStart.Y)) + 1;
+
+    private void CommitSegment(LineAlgorithm algorithm)
+    {
+        contour.Clear();
+        int drawn = Task2.DrawLine(image, segmentStart, segmentEnd, boundaryColor, algorithm);
+        string name = algorithm == LineAlgorithm.Wu ? "Ву" : "Брезенхема";
+        string detail = algorithm == LineAlgorithm.Wu
+            ? "с дизерингом по краям"
+            : "точным цветом, по одному пикселю на позицию";
+        status.Text = $"Алгоритм {name}: ({segmentStart.X}; {segmentStart.Y}) — " +
+                      $"({segmentEnd.X}; {segmentEnd.Y}), длина {SegmentLength()}; закрашено {drawn} пикселей {detail}.";
+        canvas.Invalidate();
     }
 
     private void DrawSegment(Point from, Point to)
@@ -226,12 +297,25 @@ public sealed class MainForm : Form
 
     private void CanvasPaint(object? sender, PaintEventArgs e)
     {
-        if (contour.Count == 0) return;
+        if (contour.Count == 0 && !segmentAnchored) return;
         using Pen pen = new(Color.Red, 2);
         if (contour.Count > 1) e.Graphics.DrawLines(pen, contour.ToArray());
-        Point first = contour[0];
+
         using Brush brush = new SolidBrush(Color.LimeGreen);
-        e.Graphics.FillEllipse(brush, first.X - 3, first.Y - 3, 7, 7);
+        if (contour.Count > 0)
+        {
+            Point first = contour[0];
+            e.Graphics.FillEllipse(brush, first.X - 3, first.Y - 3, 7, 7);
+        }
+        if (segmentAnchored)
+        {
+            // Предпросмотр рисуется поверх холста и не участвует в заливке:
+            // выбранный алгоритм отработает один раз, при втором щелчке.
+            using Pen preview = new(Color.Gray, 1) { DashStyle = DashStyle.Dot };
+            e.Graphics.DrawLine(preview, segmentStart, segmentEnd);
+            using Brush start = new SolidBrush(Color.Orange);
+            e.Graphics.FillEllipse(start, segmentStart.X - 3, segmentStart.Y - 3, 7, 7);
+        }
     }
 
     private void LoadPattern(object? sender, EventArgs e)
@@ -334,6 +418,7 @@ public sealed class MainForm : Form
         canvasWidth.Value = image.Width;
         canvasHeight.Value = image.Height;
         contour.Clear();
+        segmentAnchored = false;
         old.Dispose();
         canvas.Invalidate();
     }
@@ -371,6 +456,8 @@ public sealed class MainForm : Form
             Mode.Draw => "Левой кнопкой нарисуйте замкнутые контуры. Внутренние контуры образуют отверстия.",
             Mode.FillColor => "Щёлкните внутри области для рекурсивной заливки выбранным цветом.",
             Mode.FillPattern => "Загрузите рисунок и щёлкните внутри области для заливки.",
+            Mode.SegmentBresenham => "Щёлкните начало и конец отрезка: он будет построен целочисленным алгоритмом Брезенхема, без сглаживания.",
+            Mode.SegmentWu => "Щёлкните начало и конец отрезка: он будет построен алгоритмом Ву со сглаживанием краёв.",
             _ => "Щёлкните по пикселю границы на изображении для её обхода."
         };
     }

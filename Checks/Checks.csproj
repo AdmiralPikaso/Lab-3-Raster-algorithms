@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../RasterOperations.cs" Link="RasterOperations.cs" />
+    <Compile Include="../Task2.cs" Link="Task2.cs" />
   </ItemGroup>
 </Project>
