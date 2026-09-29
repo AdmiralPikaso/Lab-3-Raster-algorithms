@@ -5,7 +5,7 @@ namespace RasterAlgorithms;
 
 public sealed class MainForm : Form
 {
-    private enum Mode { Draw, FillColor, FillPattern, Trace, SegmentBresenham, SegmentWu }
+    private enum Mode { Draw, FillColor, FillPattern, Trace, SegmentBresenham, SegmentWu, GradientTriangle }
 
     private readonly PictureBox canvas = new();
     private readonly ComboBox modeSelect = new();
@@ -24,6 +24,7 @@ public sealed class MainForm : Form
     private bool segmentAnchored;
     private Point segmentStart;
     private Point segmentEnd;
+    private readonly List<Point> triangleVertices = [];
 
     public MainForm()
     {
@@ -51,13 +52,14 @@ public sealed class MainForm : Form
         modeSelect.Width = 190;
         modeSelect.Items.AddRange([
             "Рисовать границу", "Заливка цветом", "Заливка рисунком", "Обход границы",
-            "Отрезок Брезенхемом", "Отрезок Ву"
+            "Отрезок Брезенхемом", "Отрезок Ву", "Градиентный треугольник"
         ]);
         modeSelect.SelectedIndex = 0;
         modeSelect.SelectedIndexChanged += (_, _) =>
         {
             contour.Clear();
             segmentAnchored = false;
+            triangleVertices.Clear();
             canvas.Invalidate();
             UpdateHint();
         };
@@ -157,6 +159,35 @@ public sealed class MainForm : Form
     private void CanvasMouseDown(object? sender, MouseEventArgs e)
     {
         if (e.Button != MouseButtons.Left || !Inside(e.Location)) return;
+        if (CurrentMode == Mode.GradientTriangle)
+        {
+            triangleVertices.Add(e.Location);
+
+            if (triangleVertices.Count == 3)
+            {
+                // Три вершины разного цвета — фиксированные, чтобы результат был наглядным.
+                Point p1 = triangleVertices[0];
+                Point p2 = triangleVertices[1];
+                Point p3 = triangleVertices[2];
+
+                int painted = Task3.Draw(
+                    image,
+                    p1, Color.Red,
+                    p2, Color.Lime,
+                    p3, Color.Blue);
+
+                status.Text = $"Градиентный треугольник: ({p1.X};{p1.Y}) ({p2.X};{p2.Y}) ({p3.X};{p3.Y}), " +
+                              $"закрашено {painted} пикселей.";
+                triangleVertices.Clear();
+                canvas.Invalidate();
+                return;
+            }
+
+            status.Text = $"Вершина {triangleVertices.Count} из 3: ({e.Location.X}; {e.Location.Y}). " +
+                          "Щёлкните следующую вершину.";
+            canvas.Invalidate();
+            return;
+        }
         if (CurrentMode == Mode.Draw)
         {
             contour.Clear();
@@ -297,7 +328,7 @@ public sealed class MainForm : Form
 
     private void CanvasPaint(object? sender, PaintEventArgs e)
     {
-        if (contour.Count == 0 && !segmentAnchored) return;
+        if (contour.Count == 0 && !segmentAnchored && triangleVertices.Count == 0) return;
         using Pen pen = new(Color.Red, 2);
         if (contour.Count > 1) e.Graphics.DrawLines(pen, contour.ToArray());
 
@@ -315,6 +346,19 @@ public sealed class MainForm : Form
             e.Graphics.DrawLine(preview, segmentStart, segmentEnd);
             using Brush start = new SolidBrush(Color.Orange);
             e.Graphics.FillEllipse(start, segmentStart.X - 3, segmentStart.Y - 3, 7, 7);
+        }
+
+        if (triangleVertices.Count > 0)
+        {
+            using Brush v = new SolidBrush(Color.Orange);
+            foreach (Point pt in triangleVertices)
+                e.Graphics.FillEllipse(v, pt.X - 4, pt.Y - 4, 8, 8);
+
+            if (triangleVertices.Count >= 2)
+            {
+                using Pen preview = new(Color.Gray, 1) { DashStyle = DashStyle.Dot };
+                e.Graphics.DrawLine(preview, triangleVertices[0], triangleVertices[1]);
+            }
         }
     }
 
@@ -458,6 +502,7 @@ public sealed class MainForm : Form
             Mode.FillPattern => "Загрузите рисунок и щёлкните внутри области для заливки.",
             Mode.SegmentBresenham => "Щёлкните начало и конец отрезка: он будет построен целочисленным алгоритмом Брезенхема, без сглаживания.",
             Mode.SegmentWu => "Щёлкните начало и конец отрезка: он будет построен алгоритмом Ву со сглаживанием краёв.",
+            Mode.GradientTriangle => "Щёлкните три вершины треугольника — каждая вершина получит свой цвет (R/G/B), заливка выполнится барицентрическим градиентом.",
             _ => "Щёлкните по пикселю границы на изображении для её обхода."
         };
     }
