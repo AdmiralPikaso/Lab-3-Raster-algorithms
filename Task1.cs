@@ -3,7 +3,7 @@ using System.Drawing;
 namespace RasterAlgorithms;
 
 /// <summary>Алгоритмы работают с точными цветами пикселов, без сглаживания.</summary>
-public static class RasterOperations
+public static class Task1
 {
     private static readonly Point[] Neighbors =
     [

@@ -7,6 +7,7 @@ public sealed class MainForm : Form
 {
     private enum Mode { Draw, FillColor, FillPattern, Trace, SegmentBresenham, SegmentWu, GradientTriangle }
 
+
     private readonly PictureBox canvas = new();
     private readonly ComboBox modeSelect = new();
     private readonly Label status = new();
@@ -14,10 +15,13 @@ public sealed class MainForm : Form
     private readonly Button chooseBoundaryColor = new();
     private readonly NumericUpDown canvasWidth = new();
     private readonly NumericUpDown canvasHeight = new();
+    private readonly Button[] triangleColorButtons = [new(), new(), new()];
     private Bitmap image = new(900, 600, PixelFormat.Format32bppArgb);
     private Bitmap? pattern;
     private Color fillColor = Color.CornflowerBlue;
     private Color boundaryColor = Color.Black;
+    private readonly Color[] triangleColors = [Color.Red, Color.LimeGreen, Color.Blue];
+    private readonly List<Point> triangleVertices = [];
     private List<Point> contour = [];
     private bool drawing;
     private Point previous;
@@ -107,6 +111,30 @@ public sealed class MainForm : Form
         });
         toolbar.Controls.Add(canvasHeight);
         toolbar.Controls.Add(Button("Изменить размер", ResizeCanvas, 140));
+        toolbar.Controls.Add(new Label
+        {
+            Text = "Цвета вершин:", AutoSize = true,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Margin = new Padding(3, 8, 3, 0)
+        });
+        for (int index = 0; index < triangleColorButtons.Length; index++)
+        {
+            int vertexIndex = index;
+            Button button = triangleColorButtons[index];
+            button.Text = TriangleButtonText(index);
+            button.Width = 145;
+            button.Height = 27;
+            button.Click += (_, _) =>
+            {
+                using ColorDialog dialog = new() { Color = triangleColors[vertexIndex], FullOpen = true };
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                triangleColors[vertexIndex] = dialog.Color;
+                button.Text = TriangleButtonText(vertexIndex);
+                status.Text = $"Цвет вершины {vertexIndex + 1}: {ColorHex(dialog.Color)}.";
+                canvas.Invalidate();
+            };
+            toolbar.Controls.Add(button);
+        }
 
         status.Dock = DockStyle.Bottom;
         status.Height = 42;
@@ -138,6 +166,9 @@ public sealed class MainForm : Form
     private static string ColorHex(Color color) => $"#{color.R:X2}{color.G:X2}{color.B:X2}";
 
     private static string ColorButtonText(string name, Color color) => $"{name} {ColorHex(color)}";
+
+    private string TriangleButtonText(int index) =>
+        $"Вершина {index + 1} {ColorHex(triangleColors[index])}";
 
     private static void ConfigureSizeInput(NumericUpDown input, int value)
     {
@@ -198,6 +229,31 @@ public sealed class MainForm : Form
         }
 
         drawing = false;
+        if (CurrentMode == Mode.Triangle)
+        {
+            if (triangleColors.Distinct().Count() != 3)
+            {
+                status.Text = "Для треугольника выберите три разных цвета вершин.";
+                return;
+            }
+            triangleVertices.Add(e.Location);
+            if (triangleVertices.Count == 3)
+            {
+                int trianglePixelCount = Task3.FillTriangle(image,
+                    triangleVertices[0], triangleColors[0],
+                    triangleVertices[1], triangleColors[1],
+                    triangleVertices[2], triangleColors[2]);
+                triangleVertices.Clear();
+                status.Text = trianglePixelCount == 0
+                    ? "Вершины лежат на одной прямой. Выберите три разные точки треугольника."
+                    : $"Градиентный треугольник построен: {trianglePixelCount} пикселов.";
+            }
+            else
+                status.Text = $"Вершина {triangleVertices.Count} выбрана. " +
+                              $"Щёлкните вершину {triangleVertices.Count + 1}.";
+            canvas.Invalidate();
+            return;
+        }
         if (SegmentMode is LineAlgorithm algorithm)
         {
             // Отрезок задаётся двумя нажатиями, поэтому предпросмотр идёт по
@@ -218,7 +274,7 @@ public sealed class MainForm : Form
 
         if (CurrentMode == Mode.Trace)
         {
-            contour = RasterOperations.TraceBoundary(image, e.Location);
+            contour = Task1.TraceBoundary(image, e.Location);
             status.Text = $"Обойдено точек границы: {contour.Count}. " +
                           "Красная линия показывает порядок обхода; зелёная точка — начало.";
             canvas.Invalidate();
@@ -233,8 +289,8 @@ public sealed class MainForm : Form
         }
 
         int count = CurrentMode == Mode.FillColor
-            ? RasterOperations.Fill(image, e.Location, (_, _) => fillColor)
-            : RasterOperations.FillPattern(image, e.Location, pattern!);
+            ? Task1.Fill(image, e.Location, (_, _) => fillColor)
+            : Task1.FillPattern(image, e.Location, pattern!);
         if (count == 0)
         {
             status.Text = "Область доходит до края холста. Замкните контур и щёлкните внутри него.";
@@ -296,7 +352,7 @@ public sealed class MainForm : Form
         int drawn = Task2.DrawLine(image, segmentStart, segmentEnd, boundaryColor, algorithm);
         string name = algorithm == LineAlgorithm.Wu ? "Ву" : "Брезенхема";
         string detail = algorithm == LineAlgorithm.Wu
-            ? "с дизерингом по краям"
+            ? "со сглаживанием краёв"
             : "точным цветом, по одному пикселю на позицию";
         status.Text = $"Алгоритм {name}: ({segmentStart.X}; {segmentStart.Y}) — " +
                       $"({segmentEnd.X}; {segmentEnd.Y}), длина {SegmentLength()}; закрашено {drawn} пикселей {detail}.";
@@ -463,6 +519,7 @@ public sealed class MainForm : Form
         canvasHeight.Value = image.Height;
         contour.Clear();
         segmentAnchored = false;
+        triangleVertices.Clear();
         old.Dispose();
         canvas.Invalidate();
     }
