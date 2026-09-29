@@ -11,6 +11,8 @@ public sealed class MainForm : Form
     private readonly Label status = new();
     private readonly Button chooseFillColor = new();
     private readonly Button chooseBoundaryColor = new();
+    private readonly NumericUpDown canvasWidth = new();
+    private readonly NumericUpDown canvasHeight = new();
     private Bitmap image = new(900, 600, PixelFormat.Format32bppArgb);
     private Bitmap? pattern;
     private Color fillColor = Color.CornflowerBlue;
@@ -82,6 +84,21 @@ public sealed class MainForm : Form
         toolbar.Controls.Add(Button("Открыть изображение", LoadImage, 160));
         toolbar.Controls.Add(Button("Новый холст", ResetCanvas, 105));
         toolbar.Controls.Add(Button("Сохранить границу", SaveContour, 150));
+        toolbar.Controls.Add(new Label
+        {
+            Text = "Холст:", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft,
+            Margin = new Padding(3, 8, 3, 0)
+        });
+        ConfigureSizeInput(canvasWidth, image.Width);
+        ConfigureSizeInput(canvasHeight, image.Height);
+        toolbar.Controls.Add(canvasWidth);
+        toolbar.Controls.Add(new Label
+        {
+            Text = "×", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft,
+            Margin = new Padding(0, 8, 0, 0)
+        });
+        toolbar.Controls.Add(canvasHeight);
+        toolbar.Controls.Add(Button("Изменить размер", ResizeCanvas, 140));
 
         status.Dock = DockStyle.Bottom;
         status.Height = 42;
@@ -113,6 +130,16 @@ public sealed class MainForm : Form
     private static string ColorHex(Color color) => $"#{color.R:X2}{color.G:X2}{color.B:X2}";
 
     private static string ColorButtonText(string name, Color color) => $"{name} {ColorHex(color)}";
+
+    private static void ConfigureSizeInput(NumericUpDown input, int value)
+    {
+        input.Minimum = 1;
+        input.Maximum = Math.Max(4096, value);
+        input.Value = value;
+        input.Width = 72;
+        input.TextAlign = HorizontalAlignment.Right;
+        input.ThousandsSeparator = true;
+    }
 
     private static Button Button(string title, EventHandler handler, int width)
     {
@@ -260,19 +287,52 @@ public sealed class MainForm : Form
 
     private void ResetCanvas(object? sender, EventArgs e)
     {
-        Bitmap fresh = new(900, 600, PixelFormat.Format32bppArgb);
+        Bitmap fresh = new(image.Width, image.Height, PixelFormat.Format32bppArgb);
         using (Graphics graphics = Graphics.FromImage(fresh)) graphics.Clear(Color.White);
         ReplaceImage(fresh);
         modeSelect.SelectedIndex = (int)Mode.Draw;
         UpdateHint();
     }
 
+    private void ResizeCanvas(object? sender, EventArgs e)
+    {
+        int width = Decimal.ToInt32(canvasWidth.Value);
+        int height = Decimal.ToInt32(canvasHeight.Value);
+        if (width == image.Width && height == image.Height)
+        {
+            status.Text = $"Размер холста уже {width}×{height} пикселов.";
+            return;
+        }
+
+        try
+        {
+            Bitmap resized = new(width, height, PixelFormat.Format32bppArgb);
+            using (Graphics graphics = Graphics.FromImage(resized))
+            {
+                graphics.Clear(Color.White);
+                graphics.DrawImageUnscaled(image, 0, 0);
+            }
+            ReplaceImage(resized);
+            status.Text = $"Размер холста: {width}×{height}. Содержимое сохранено без масштабирования; " +
+                          "при уменьшении правый и нижний края обрезаются.";
+        }
+        catch (OutOfMemoryException)
+        {
+            status.Text = "Недостаточно памяти для холста такого размера.";
+        }
+    }
+
     private void ReplaceImage(Bitmap replacement)
     {
         Bitmap old = image;
+        drawing = false;
         image = replacement;
         canvas.Image = image;
         canvas.Size = image.Size;
+        canvasWidth.Maximum = Math.Max(4096, image.Width);
+        canvasHeight.Maximum = Math.Max(4096, image.Height);
+        canvasWidth.Value = image.Width;
+        canvasHeight.Value = image.Height;
         contour.Clear();
         old.Dispose();
         canvas.Invalidate();
