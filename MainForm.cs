@@ -2,7 +2,6 @@ using System.Drawing.Imaging;
 
 namespace RasterAlgorithms;
 
-/// <summary>Общий холст и переключение между тремя заданиями лабораторной.</summary>
 public sealed partial class MainForm : Form
 {
     private enum Mode { Draw, FillColor, FillPattern, Trace, SegmentBresenham, SegmentWu, Triangle }

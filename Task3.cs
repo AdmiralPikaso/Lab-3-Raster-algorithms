@@ -3,14 +3,10 @@ using System.Drawing.Drawing2D;
 
 namespace RasterAlgorithms;
 
-/// <summary>Задание 3: растеризация треугольника и смешивание цветов вершин.</summary>
+
 public static class Task3
 {
-    /// <summary>
-    /// Перебирает пикселы ограничивающего прямоугольника. Ориентированные
-    /// площади определяют принадлежность треугольнику и барицентрические веса
-    /// для интерполяции красного, зелёного и синего каналов.
-    /// </summary>
+
     public static int FillTriangle(Bitmap image,
         Point first, Color firstColor,
         Point second, Color secondColor,

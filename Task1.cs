@@ -3,7 +3,7 @@ using System.Drawing.Imaging;
 
 namespace RasterAlgorithms;
 
-/// <summary>Алгоритмы работают с точными цветами пикселов, без сглаживания.</summary>
+
 public static class Task1
 {
     private static readonly Point[] Neighbors =
@@ -12,11 +12,7 @@ public static class Task1
         new(1, 0), new(1, 1), new(0, 1), new(-1, 1)
     ];
 
-    /// <summary>
-    /// Рекурсивная заливка сериями. Цвет начального пиксела задаёт область
-    /// четырёхсвязности; нарисованная граница другого цвета остаётся нетронутой.
-    /// Если область достигает края холста, заливка не выполняется.
-    /// </summary>
+  
     public static int Fill(Bitmap image, Point seed, Func<int, int, Color> colorAt)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -59,9 +55,7 @@ public static class Task1
             series.Add((left, right, y));
             count += right - left + 1;
 
-            // На соседних строках рекурсивно запускается одна серия для каждого
-            // ещё не обработанного участка. Посещённость учитывается отдельно
-            // от цвета: рисунок может содержать исходный цвет области.
+       
             for (int neighborY = y - 1; neighborY <= y + 1; neighborY += 2)
             {
                 if (neighborY < 0 || neighborY >= image.Height) continue;
@@ -71,7 +65,7 @@ public static class Task1
         }
 
         FillSeries(seed.X, seed.Y, 0);
-        // Ограничение глубины защищает стек на сложных узких областях.
+       
         while (postponed.Count > 0 && !touchesEdge)
         {
             Point next = postponed.Pop();
@@ -79,24 +73,17 @@ public static class Task1
         }
         if (touchesEdge) return 0;
 
-        // Изображение изменяется только после проверки замкнутости области.
+ 
         foreach (var (left, right, y) in series)
             for (int x = left; x <= right; x++)
                 image.SetPixel(x, y, colorAt(x, y));
         return count;
     }
 
-    /// <summary>
-    /// Пиксели рисунка берутся без масштабирования. Размер меньше холста
-    /// приводит к повторению; большой рисунок используется в натуральном размере.
-    /// </summary>
+
     public static int FillPattern(Bitmap image, Point seed, Bitmap pattern) =>
         Fill(image, seed, (x, y) => pattern.GetPixel(x % pattern.Width, y % pattern.Height));
 
-    /// <summary>
-    /// Находит восьмисвязный компонент цвета выбранной точки и обходит его
-    /// внешний контур методом Мура, возвращая пиксели в порядке обхода.
-    /// </summary>
     public static List<Point> TraceBoundary(Bitmap image, Point selected)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -129,8 +116,6 @@ public static class Task1
             }
         }
 
-        // У одиночного пиксела и двухпиксельной линии нет замкнутого
-        // внешнего контура, поэтому возвращаем их без обхода по кругу.
         if (componentSize <= 2)
         {
             if (componentSize == 1) return [start];
